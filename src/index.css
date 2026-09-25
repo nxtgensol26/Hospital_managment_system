@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-surface-muted text-ink antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #c6d4e2 transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: #cdd9e6;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: #aebfd2;
+    background-clip: content-box;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-surface-line bg-white shadow-card;
+  }
+  .input {
+    @apply w-full rounded-lg border border-surface-line bg-white px-3.5 py-2.5 text-sm text-ink
+      placeholder:text-ink-faint outline-none transition
+      focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10;
+  }
+  .label {
+    @apply mb-1.5 block text-[12px] font-semibold uppercase tracking-wide text-ink-soft;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold
+      transition active:scale-[.98] disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700;
+  }
+  .btn-teal {
+    @apply btn bg-teal-600 text-white shadow-sm hover:bg-teal-700;
+  }
+  .btn-ghost {
+    @apply btn bg-surface-sunken text-ink-soft hover:bg-surface-line;
+  }
+  .btn-outline {
+    @apply btn border border-surface-line bg-white text-ink-soft hover:bg-surface-muted;
+  }
+  .btn-danger {
+    @apply btn bg-rose-50 text-rose-600 hover:bg-rose-100;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold;
+  }
+  .th {
+    @apply px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-ink-faint;
+  }
+  .td {
+    @apply px-4 py-3 text-sm text-ink;
+  }
+}
+
+.grid-bg {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(24, 102, 224, 0.08) 1px, transparent 0);
+  background-size: 26px 26px;
+}

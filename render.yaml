@@ -1,0 +1,30 @@
+# NxtHealth — Render blueprint (Infrastructure as Code).
+# This deploys ONLY the static SPA + the /health probe. It contains NO backend
+# business logic: notifications, SMS Horizon/WhatsApp, credential decryption,
+# licensing, RBAC writes and tenant isolation all remain in Supabase Edge
+# Functions + Postgres RLS and are NOT moved here.
+#
+# SECRETS: none of the sensitive keys live on Render. The service-role key,
+# SMS Horizon/WhatsApp credentials and the messaging/license encryption keys
+# stay as Supabase Edge Function secrets. The only values Render needs are the
+# PUBLIC Vite build-time vars below (anon key is safe to expose to browsers).
+# `sync: false` means "prompt me in the dashboard" — values are never committed.
+services:
+  - type: web
+    name: nxthealth-web
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: VITE_DATA_MODE
+        value: supabase
+      - key: VITE_SUPABASE_URL
+        sync: false   # public project URL
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false   # public/anon (publishable) key only — never the service-role key
+      # PORT is injected by Render automatically; the server reads process.env.PORT.
