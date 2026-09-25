@@ -175,13 +175,21 @@ export class SupabaseRepository implements Repository {
   async registerPatient(input: RegisterPatientInput): Promise<RegisterPatientResult> {
     const res = await invokeFn<{ patient: any; loginId: string; tempPassword: string; appointment: any }>('register-patient', input)
     const patient = mapPatient(res.patient)
-    // Registration RCS (nxthealth_reg) positional vars: name, hospital(server-side),
-    // patientId, loginId, tempPassword, doctor, regDate, regTime. `hospital` is
-    // injected by notify from the tenant record (never trusted from the client).
-    const when = patient.registeredAt ? new Date(patient.registeredAt) : new Date()
-    const regDate = when.toLocaleDateString('en-CA')            // YYYY-MM-DD
-    const regTime = when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-    void invokeFn('notify', { templateKey: 'registration', patientId: patient.id, to: patient.mobile, ref: patient.code, vars: { name: patient.name, patientId: patient.code, loginId: res.loginId, tempPassword: res.tempPassword, doctor: res.appointment?.doctorName ?? '-', regDate, regTime } }).catch(() => {})
+    // Registration RCS (nxthealth_reg_portal) is sent ONLY when the registration
+    // created a real appointment: var_6/7/8 (doctor, date, time) MUST come from
+    // that actual appointment record — never registeredAt, never placeholders.
+    // Positional vars: name, hospital(server-side), patientId, loginId,
+    // tempPassword, doctor, apptDate, apptTime. `hospital` is injected by notify
+    // from the tenant record (never trusted from the client). The approved
+    // template contains the fixed portal URL https://patient.nxtgensol.co.in.
+    const appt = res.appointment
+    if (appt?.doctor_id && appt?.date && appt?.start_time) {
+      const { data: doc } = await supabase().from('doctors').select('name').eq('id', appt.doctor_id).maybeSingle()
+      const doctorName = doc?.name ?? ''
+      if (doctorName) {
+        void invokeFn('notify', { templateKey: 'registration', patientId: patient.id, to: patient.mobile, ref: patient.code, vars: { name: patient.name, patientId: patient.code, loginId: res.loginId, tempPassword: res.tempPassword, doctor: doctorName, apptDate: appt.date, apptTime: appt.start_time } }).catch(() => {})
+      }
+    }
     return { patient, loginId: res.loginId, tempPassword: res.tempPassword, appointmentId: res.appointment?.id }
   }
   async updatePatient(id: string, patch: Partial<Patient>) {
