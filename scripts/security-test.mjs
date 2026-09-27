@@ -119,6 +119,32 @@ const run = async () => {
   const goodTpl = await A.c.functions.invoke('notify', { body: { templateKey: 'appt_confirm', to: '9812345678', ref: 'SEC-' + Date.now(), vars: { name: 'Test', doctor: 'Dr. X', date: today, time: '10:00', patientId: 'NH-1' } } })
   ok(['accepted', 'sent', 'fallback', 'configuration_missing'].includes(goodTpl.data?.status), `valid template returns a delivery status (${goodTpl.data?.status})`)
 
+  // ---- 11. Financial integrity: forge prevention + billing RBAC (migration 0019) ----
+  console.log('[11] Financial integrity & billing RBAC')
+  const billing = await login('billing@nxthealth.demo', 'Bill@12345')
+  const { data: fInv } = await billing.c.from('billing_invoices').insert({ hospital_id: aHosp.hospital_id, patient_id: aPatientId, discount_pct: 0, tax_pct: 0, subtotal: 500, discount_amt: 0, tax_amt: 0, total: 500, paid: 0, status: 'unpaid' }).select().single()
+  ok(!!fInv, 'billing.manage user can create an invoice')
+  const labInvUpd = await lab.c.from('billing_invoices').update({ paid: 500, status: 'paid' }).eq('id', fInv.id).select()
+  ok((labInvUpd.data?.length ?? 0) === 0, 'non-billing staff CANNOT forge invoice paid/status')
+  const anyInvUpd = await billing.c.from('billing_invoices').update({ paid: 9999 }).eq('id', fInv.id).select()
+  ok((anyInvUpd.data?.length ?? 0) === 0, 'invoice paid cannot be changed by a direct row update (only record_payment)')
+  const labInvIns = await lab.c.from('billing_invoices').insert({ hospital_id: aHosp.hospital_id, patient_id: aPatientId, subtotal: 0, total: 0, paid: 0, status: 'paid' }).select()
+  ok(!!labInvIns.error || (labInvIns.data?.length ?? 0) === 0, 'non-billing staff CANNOT create invoices')
+  const labPayIns = await lab.c.from('payments').insert({ hospital_id: aHosp.hospital_id, invoice_id: fInv.id, patient_id: aPatientId, amount: 1, method: 'cash' }).select()
+  ok(!!labPayIns.error || (labPayIns.data?.length ?? 0) === 0, 'direct payment insert denied (payments only via record_payment)')
+  const goodPay = await billing.c.rpc('record_payment', { p_invoice: fInv.id, p_amount: 500, p_method: 'cash', p_reference: null })
+  ok(!goodPay.error, 'record_payment still works for billing.manage')
+  const paidNow = (await A.c.from('billing_invoices').select('paid,status').eq('id', fInv.id).single()).data
+  ok(Number(paidNow.paid) === 500 && paidNow.status === 'paid', 'record_payment keeps paid/status authoritative')
+
+  // ---- 12. Lab report storage-path & MIME guard (migration 0019) ----
+  console.log('[12] Lab report path/MIME guard')
+  const { data: lpo } = await A.c.from('lab_orders').insert({ hospital_id: aHosp.hospital_id, patient_id: aPatientId, status: 'ordered' }).select().single()
+  const badPath = await lab.c.rpc('save_lab_report', { p_order: lpo.id, p_path: `${aHosp.hospital_id}/00000000-0000-0000-0000-000000000000/x.pdf`, p_file_name: 'x.pdf', p_mime: 'application/pdf', p_size: 100 })
+  ok(!!badPath.error, 'save_lab_report rejects a storage_path outside the order namespace')
+  const badMime = await lab.c.rpc('save_lab_report', { p_order: lpo.id, p_path: `${aHosp.hospital_id}/${aPatientId}/x.exe`, p_file_name: 'x.exe', p_mime: 'application/x-msdownload', p_size: 100 })
+  ok(!!badMime.error, 'save_lab_report rejects a disallowed MIME type')
+
   console.log(`\n=== RESULT: ${pass} passed, ${fail} failed ===\n`)
   if (fail > 0) process.exit(1)
 }
