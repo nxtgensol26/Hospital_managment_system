@@ -135,9 +135,12 @@ export interface Repository {
   enterResult(sampleId: string, result: string, flag: LabSample['flag']): Promise<void>
   verifyResult(sampleId: string): Promise<void>
   releaseOrderReport(orderId: string): Promise<void>
+  uploadLabReport(input: { orderId: string; patientId: string; file: File }): Promise<{ ok: boolean; fileName: string }>
+  getLabReportUrl(orderId: string, opts?: { download?: boolean }): Promise<{ url: string; fileName?: string; mimeType?: string } | null>
 
   // billing
   listBills(): Promise<Bill[]>
+  listBillsForPatient(patientId: string): Promise<Bill[]>
   listPayments(): Promise<Payment[]>
   createBill(input: { patientId: string; visitId?: string; admissionId?: string; items: Omit<BillItem, 'id' | 'amount'>[]; discountPct: number; taxPct: number }): Promise<Bill>
   addPayment(input: { billId: string; amount: number; method: Payment['method']; reference?: string }): Promise<Payment>

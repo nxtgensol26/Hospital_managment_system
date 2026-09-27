@@ -30,7 +30,7 @@ export interface TemplateConfig {
 export const NOTIFICATION_TEMPLATES: Record<NotificationType, TemplateConfig> = {
   appt_confirm: { key: 'appt_confirm', useCase: 'Appointment confirmation', channel: 'rcs', providerTemplate: 'nxthealth_appt', varOrder: ['name', 'doctor', 'date', 'time', 'patientId'] },
   appt_reminder: { key: 'appt_reminder', useCase: 'Appointment reminder', channel: 'rcs', providerTemplate: null, varOrder: ['name', 'doctor', 'date', 'time', 'patientId'] },
-  registration: { key: 'registration', useCase: 'Patient registration', channel: 'rcs', providerTemplate: 'nxthealth_reg', varOrder: ['name', 'hospital', 'patientId', 'loginId', 'tempPassword', 'doctor', 'regDate', 'regTime'] },
+  registration: { key: 'registration', useCase: 'Patient registration (portal + appointment)', channel: 'rcs', providerTemplate: 'nxthealth_reg_portal', varOrder: ['name', 'hospital', 'patientId', 'loginId', 'tempPassword', 'doctor', 'apptDate', 'apptTime'] },
   lab_ready: { key: 'lab_ready', useCase: 'Lab report ready', channel: 'rcs', providerTemplate: null, varOrder: ['name', 'orderId'] },
   prescription_ready: { key: 'prescription_ready', useCase: 'Prescription ready', channel: 'rcs', providerTemplate: null, varOrder: ['name', 'rxId', 'doctor'] },
   payment_receipt: { key: 'payment_receipt', useCase: 'Payment receipt', channel: 'sms', providerTemplate: null, varOrder: ['name', 'invId', 'amount'] },

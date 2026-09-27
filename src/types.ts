@@ -288,6 +288,10 @@ export interface LabOrder {
   createdAt: ISODateTime
   status: LabOrderStatus
   testIds: ID[]
+  hasReport?: boolean            // an uploaded report file is attached
+  reportFileName?: string
+  reportMimeType?: string
+  reportUploadedAt?: ISODateTime
 }
 
 export interface LabSample {

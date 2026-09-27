@@ -38,6 +38,23 @@ ok(threw2, 'payment without a DB id (not persisted) → receipt is NOT generated
 const html2 = buildReceiptHtml({ id: 'u2', code: 'INV-000099', total: 250, paid: 0 }, { id: 'pay-xyz', patientId: 'p2', amount: 250, method: 'cash', at: '' }, { code: 'NH-000010', name: 'Ravi' })
 ok(html2.includes('INV-000099') && html2.includes('Ravi') && html2.includes(inr(250)) && !html2.includes('Asha Rao'), 'receipt is bound to the provided data (no hardcoded values)')
 
+// itemized BILL DETAILS from real line items + reconciliation
+const itemBill = { id: 'u3', code: 'INV-000015', subtotal: 1600, discountPct: 0, discountAmt: 0, taxPct: 0, taxAmt: 0, total: 1600, paid: 0, items: [
+  { id: 'i1', kind: 'consultation', description: 'Doctor Consultation', qty: 1, unitPrice: 500, amount: 500 },
+  { id: 'i2', kind: 'diagnostics', description: 'Blood Test', qty: 1, unitPrice: 300, amount: 300 },
+  { id: 'i3', kind: 'pharmacy', description: 'Medicine ABC', qty: 2, unitPrice: 400, amount: 800 },
+] }
+const rHtml = buildReceiptHtml(itemBill, { id: 'pay-abc', patientId: 'p', amount: 1600, method: 'cash', at: '' }, { code: 'NH-000050', name: 'Test' })
+ok(rHtml.includes('Bill Details') && rHtml.includes('Doctor Consultation') && rHtml.includes('Blood Test') && rHtml.includes('Medicine ABC'), 'receipt shows itemized bill details (real line items)')
+ok(rHtml.includes('Payment Summary') && rHtml.includes(inr(1600)), 'receipt shows payment summary with invoice total')
+ok(itemBill.items.reduce((s, i) => s + i.amount, 0) === itemBill.total, 'line-item sum reconciles to invoice total (no disc/tax)')
+ok(!rHtml.includes('Discount') && !rHtml.includes('Tax / GST'), 'discount/tax rows hidden when not stored')
+// discount + tax shown when actually stored
+const dtBill = { id: 'u4', code: 'INV-000016', subtotal: 1000, discountPct: 10, discountAmt: 100, taxPct: 5, taxAmt: 45, total: 945, paid: 0, items: [{ id: 'i1', kind: 'procedure', description: 'Minor Procedure', qty: 1, unitPrice: 1000, amount: 1000 }] }
+const dtHtml = buildReceiptHtml(dtBill, { id: 'pay-d', patientId: 'p', amount: 945, method: 'card', at: '' }, { code: 'NH-1', name: 'D' })
+ok(dtHtml.includes('Discount (10%)') && dtHtml.includes('Tax / GST (5%)'), 'stored discount + tax rendered on receipt')
+ok(+(dtBill.subtotal - dtBill.discountAmt + dtBill.taxAmt).toFixed(2) === dtBill.total, 'subtotal − discount + tax reconciles to invoice total')
+
 // 7/8/9. print CSS rules exist and are applied
 const printSrc = readFileSync(new URL('../src/lib/print.ts', import.meta.url), 'utf8')
 ok(printSrc.includes('@media print') && printSrc.includes('.noprint'), 'print CSS hides navigation/controls (.noprint in @media print)')
