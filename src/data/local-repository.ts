@@ -137,8 +137,11 @@ export class LocalRepository implements Repository {
   async enterResult(id: string, result: string, flag: LabSample['flag']) { H.enterResult(id, result, flag) }
   async verifyResult(id: string) { H.verifyResult(id) }
   async releaseOrderReport(orderId: string) { H.releaseOrderReport(orderId) }
+  async uploadLabReport(): Promise<{ ok: boolean; fileName: string }> { throw new Error('Report upload requires Supabase mode (secure private storage).') }
+  async getLabReportUrl(): Promise<{ url: string; fileName?: string; mimeType?: string } | null> { return null }
 
   async listBills() { return this.db().bills }
+  async listBillsForPatient(patientId: string) { return this.db().bills.filter((b) => b.patientId === patientId) }
   async listPayments() { return this.db().payments }
   async createBill(i: { patientId: string; visitId?: string; admissionId?: string; items: Omit<BillItem, 'id' | 'amount'>[]; discountPct: number; taxPct: number }) { return H.createBill(i) }
   async addPayment(i: { billId: string; amount: number; method: Payment['method']; reference?: string }) { return H.addPayment(i) }

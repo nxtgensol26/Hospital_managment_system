@@ -33,7 +33,7 @@ const mapConsult = (r: any): Consultation => ({ id: r.id, visitId: r.visit_id ??
 const mapVitals = (r: any): Vitals => ({ id: r.id, patientId: r.patient_id, visitId: r.visit_id ?? undefined, recordedAt: r.recorded_at, recordedBy: r.recorded_by ?? '', bpSystolic: r.bp_systolic ?? undefined, bpDiastolic: r.bp_diastolic ?? undefined, pulse: r.pulse ?? undefined, tempF: r.temp_f ?? undefined, spo2: r.spo2 ?? undefined, weightKg: r.weight_kg ?? undefined, heightCm: r.height_cm ?? undefined, respRate: r.resp_rate ?? undefined })
 const mapRxItem = (r: any): PrescriptionItem => ({ id: r.id, medicineId: r.medicine_id ?? undefined, medicineName: r.medicine_name, dosage: r.dosage ?? '', frequency: r.frequency ?? '', duration: r.duration ?? '', instructions: r.instructions ?? undefined, quantity: r.quantity })
 const mapRx = (r: any): Prescription => ({ id: r.id, code: r.rx_code, consultationId: r.consultation_id ?? undefined, patientId: r.patient_id, doctorId: r.doctor_id ?? '', createdAt: r.created_at, status: r.status, notes: r.notes ?? undefined, items: (r.prescription_items ?? []).map(mapRxItem) })
-const mapOrder = (r: any): LabOrder => ({ id: r.id, code: r.order_code, patientId: r.patient_id, doctorId: r.doctor_id ?? undefined, visitId: r.visit_id ?? undefined, createdAt: r.created_at, status: r.status, testIds: (r.lab_samples ?? []).map((s: any) => s.test_id) })
+const mapOrder = (r: any): LabOrder => { const rep = Array.isArray(r.lab_reports) ? r.lab_reports[0] : r.lab_reports; return ({ id: r.id, code: r.order_code, patientId: r.patient_id, doctorId: r.doctor_id ?? undefined, visitId: r.visit_id ?? undefined, createdAt: r.created_at, status: r.status, testIds: (r.lab_samples ?? []).map((s: any) => s.test_id), hasReport: !!rep?.storage_path, reportFileName: rep?.file_name ?? undefined, reportMimeType: rep?.mime_type ?? undefined, reportUploadedAt: rep?.uploaded_at ?? undefined }) }
 const mapSample = (r: any): LabSample => { const res = Array.isArray(r.lab_results) ? r.lab_results[0] : r.lab_results; return { id: r.id, code: r.sample_code ?? undefined, orderId: r.order_id, patientId: r.patient_id, testId: r.test_id, status: r.status, collectedAt: r.collected_at ?? undefined, collectedBy: r.collected_by ?? undefined, processedAt: r.processed_at ?? undefined, result: res?.value ?? undefined, resultUnit: res?.unit ?? undefined, refRange: res?.ref_range ?? undefined, flag: res?.flag ?? undefined, verifiedAt: res?.verified_at ?? undefined, releasedAt: res?.released_at ?? undefined } }
 const mapBillItem = (r: any): BillItem => ({ id: r.id, kind: r.kind, description: r.description, qty: Number(r.qty), unitPrice: Number(r.unit_price), amount: Number(r.amount) })
 const mapBill = (r: any): Bill => ({ id: r.id, code: r.invoice_code, patientId: r.patient_id, visitId: r.visit_id ?? undefined, admissionId: r.admission_id ?? undefined, createdAt: r.created_at, createdBy: r.created_by ?? '', items: (r.billing_items ?? []).map(mapBillItem), discountPct: Number(r.discount_pct), taxPct: Number(r.tax_pct), subtotal: Number(r.subtotal), discountAmt: Number(r.discount_amt), taxAmt: Number(r.tax_amt), total: Number(r.total), paid: Number(r.paid), status: r.status })
@@ -158,7 +158,7 @@ export class SupabaseRepository implements Repository {
       supabase().from('vitals').select('*').eq('patient_id', patientId).order('recorded_at', { ascending: false }),
       supabase().from('consultations').select('*').eq('patient_id', patientId).order('date', { ascending: false }),
       supabase().from('prescriptions').select('*, prescription_items(*)').eq('patient_id', patientId).order('created_at', { ascending: false }),
-      supabase().from('lab_orders').select('*, lab_samples(test_id)').eq('patient_id', patientId).order('created_at', { ascending: false }),
+      supabase().from('lab_orders').select('*, lab_samples(test_id), lab_reports(storage_path,file_name,mime_type,file_size,uploaded_at)').eq('patient_id', patientId).order('created_at', { ascending: false }),
       supabase().from('lab_samples').select('*, lab_results(value,unit,ref_range,flag,verified_at,released_at)').eq('patient_id', patientId),
       supabase().from('billing_invoices').select('*, billing_items(*)').eq('patient_id', patientId).order('created_at', { ascending: false }),
       supabase().from('payments').select('*').eq('patient_id', patientId).order('at', { ascending: false }),
@@ -269,7 +269,7 @@ export class SupabaseRepository implements Repository {
     await this.audit('Lab order created', 'lab_order', order.order_code, `${input.testIds.length} test(s)`)
     return { ...mapOrder(order), testIds: input.testIds }
   }
-  async listLabOrders() { const { data } = await supabase().from('lab_orders').select('*, lab_samples(test_id)').order('created_at', { ascending: false }).limit(300); return (data ?? []).map(mapOrder) }
+  async listLabOrders() { const { data } = await supabase().from('lab_orders').select('*, lab_samples(test_id), lab_reports(storage_path,file_name,mime_type,file_size,uploaded_at)').order('created_at', { ascending: false }).limit(300); return (data ?? []).map(mapOrder) }
   async listLabSamples() { const { data } = await supabase().from('lab_samples').select('*, lab_results(value,unit,ref_range,flag,verified_at,released_at)').order('id', { ascending: false }).limit(500); return (data ?? []).map(mapSample) }
   async collectSample(sampleId: string) {
     const me = await myProfile()
@@ -297,7 +297,46 @@ export class SupabaseRepository implements Repository {
     if (p) void invokeFn('notify', { templateKey: 'lab_ready', patientId: order!.patient_id, to: p.mobile, ref: order!.order_code, vars: { name: p.name, orderId: order!.order_code } }).catch(() => {})
   }
 
+  // Upload (or replace) the completed report FILE for a lab order. The file goes
+  // to the PRIVATE `lab-reports` bucket at {hospital_id}/{patient_id}/... (staff
+  // storage RLS); only metadata is persisted (via save_lab_report RPC, which also
+  // marks the order 'reported'). Fires the existing lab_ready notification after
+  // a successful save (deduped by ref=order_code).
+  async uploadLabReport(input: { orderId: string; patientId: string; file: File }) {
+    const f = input.file
+    const allowed = ['application/pdf', 'image/jpeg', 'image/png']
+    if (!allowed.includes(f.type)) throw new Error('Only PDF, JPG, or PNG files are allowed')
+    const MAX = 10 * 1024 * 1024
+    if (f.size > MAX) throw new Error('File too large (maximum 10 MB)')
+    const me = await myProfile()
+    const ext = f.type === 'application/pdf' ? 'pdf' : f.type === 'image/png' ? 'png' : 'jpg'
+    const path = `${me.hospital_id}/${input.patientId}/lab-${input.orderId}.${ext}`
+    const up = await supabase().storage.from('lab-reports').upload(path, f, { contentType: f.type, upsert: true })
+    if (up.error) throw new Error('Upload failed: ' + up.error.message)
+    const { data, error } = await supabase().rpc('save_lab_report', { p_order: input.orderId, p_path: path, p_file_name: f.name, p_mime: f.type, p_size: f.size })
+    if (error) throw new Error(error.message)
+    const res = data as { order_code?: string; previous_path?: string }
+    // Remove a superseded object of a different extension (best-effort; audit is in audit_logs).
+    if (res?.previous_path && res.previous_path !== path) { try { await supabase().storage.from('lab-reports').remove([res.previous_path]) } catch { /* ignore */ } }
+    const { data: p } = await supabase().from('patients').select('mobile,name').eq('id', input.patientId).single()
+    if (p && res?.order_code) void invokeFn('notify', { templateKey: 'lab_ready', patientId: input.patientId, to: p.mobile, ref: res.order_code, vars: { name: p.name, orderId: res.order_code } }).catch(() => {})
+    return { ok: true, fileName: f.name }
+  }
+
+  // Short-lived signed URL for a report file. The storage_path is resolved from
+  // the lab_reports row (RLS: staff own-hospital / patient own patient_id) — never
+  // trusted from the client. Optionally forces a download.
+  async getLabReportUrl(orderId: string, opts?: { download?: boolean }) {
+    const { data: rep } = await supabase().from('lab_reports').select('storage_path, file_name, mime_type').eq('order_id', orderId).maybeSingle()
+    if (!rep?.storage_path) return null
+    const signOpts = opts?.download ? { download: rep.file_name ?? true } : undefined
+    const { data, error } = await supabase().storage.from('lab-reports').createSignedUrl(rep.storage_path, 300, signOpts as any)
+    if (error || !data?.signedUrl) return null
+    return { url: data.signedUrl, fileName: rep.file_name ?? undefined, mimeType: rep.mime_type ?? undefined }
+  }
+
   async listBills() { const { data } = await supabase().from('billing_invoices').select('*, billing_items(*)').order('created_at', { ascending: false }).limit(300); return (data ?? []).map(mapBill) }
+  async listBillsForPatient(patientId: string) { const { data } = await supabase().from('billing_invoices').select('*, billing_items(*)').eq('patient_id', patientId).order('created_at', { ascending: false }); return (data ?? []).map(mapBill) }
   async listPayments() { const { data } = await supabase().from('payments').select('*').order('at', { ascending: false }).limit(300); return (data ?? []).map(mapPayment) }
   async createBill(input: { patientId: string; visitId?: string; admissionId?: string; items: Omit<BillItem, 'id' | 'amount'>[]; discountPct: number; taxPct: number }) {
     const me = await myProfile()

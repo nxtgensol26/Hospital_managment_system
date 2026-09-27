@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import {
   LayoutDashboard, UserRound, CalendarDays, Stethoscope, Pill, FlaskConical, ReceiptText,
-  Activity, LogOut, BellRing, FileText, Clock, AlertTriangle, Loader2,
+  Activity, LogOut, BellRing, FileText, Clock, AlertTriangle, Loader2, Eye, Download,
 } from 'lucide-react'
 import { useAuth } from '../../store/auth'
+import { toast } from '../../store/toast'
 import { Wordmark } from '../../components/Logo'
 import { Card, CardHeader, Badge, Avatar, EmptyState, Table } from '../../components/ui'
 import { ForcePasswordChange } from '../auth/ForcePasswordChange'
@@ -29,6 +30,14 @@ export function Portal() {
   const repo = getRepository()
   const [section, setSection] = useState<Section>('dashboard')
   const { doctorName, deptName } = useRefData()
+
+  async function openReport(orderId: string, download: boolean) {
+    try {
+      const r = await repo.getLabReportUrl(orderId, { download })
+      if (!r?.url) return toast.error('Report unavailable')
+      window.open(r.url, '_blank', 'noopener')
+    } catch (e) { toast.error('Could not open report', String((e as Error).message)) }
+  }
 
   const { data: patient, loading: pLoading, error: pErr } = useQuery(() => repo.getMyPatient(), [])
   const { data: record } = useQuery(() => (patient ? repo.getPatientRecord(patient.id) : Promise.resolve(null)), [patient?.id])
@@ -157,9 +166,19 @@ export function Portal() {
                   const os = samples.filter((s) => s.orderId === o.id)
                   return (
                     <div key={o.id} className="mb-3 rounded-xl border border-surface-line p-4">
-                      <div className="mb-2 flex justify-between"><p className="font-semibold text-brand-700">{o.code ?? o.id} <span className="text-xs font-normal text-ink-faint">{fmtDate(o.createdAt)}</span></p><Badge tone={o.status === 'reported' ? 'green' : 'amber'}>{o.status}</Badge></div>
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><p className="font-semibold text-brand-700">{o.code ?? o.id} <span className="text-xs font-normal text-ink-faint">{fmtDate(o.createdAt)}</span></p><Badge tone={o.status === 'reported' ? 'green' : 'amber'}>{o.status === 'reported' ? 'Ready' : o.status}</Badge></div>
+                      {o.hasReport && (
+                        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-brand-50 p-2.5">
+                          <FileText size={15} className="text-brand-600" />
+                          <span className="min-w-0 flex-1 truncate text-sm text-ink">{o.reportFileName ?? 'Lab report'}</span>
+                          <button className="btn-outline !px-2.5 !py-1 text-xs" onClick={() => openReport(o.id, false)}><Eye size={13} /> View</button>
+                          <button className="btn-primary !px-2.5 !py-1 text-xs" onClick={() => openReport(o.id, true)}><Download size={13} /> Download</button>
+                        </div>
+                      )}
                       {o.status === 'reported' ? (
-                        <Table head={<><th className="th">Test</th><th className="th">Result</th><th className="th">Ref</th></>}>{os.map((s) => <tr key={s.id}><td className="td">{testName(s.testId)}</td><td className="td font-semibold">{s.result} {s.resultUnit} {s.flag && s.flag !== 'normal' && <Badge tone={s.flag === 'critical' ? 'red' : 'amber'}>{s.flag}</Badge>}</td><td className="td text-ink-faint">{s.refRange}</td></tr>)}</Table>
+                        os.some((s) => s.result) ? (
+                          <Table head={<><th className="th">Test</th><th className="th">Result</th><th className="th">Ref</th></>}>{os.map((s) => <tr key={s.id}><td className="td">{testName(s.testId)}</td><td className="td font-semibold">{s.result} {s.resultUnit} {s.flag && s.flag !== 'normal' && <Badge tone={s.flag === 'critical' ? 'red' : 'amber'}>{s.flag}</Badge>}</td><td className="td text-ink-faint">{s.refRange}</td></tr>)}</Table>
+                        ) : (!o.hasReport && <p className="text-sm text-ink-faint">Report is ready.</p>)
                       ) : <p className="text-sm text-ink-faint">Report will be available once released by the lab.</p>}
                     </div>
                   )

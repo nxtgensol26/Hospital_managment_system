@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FlaskConical, TestTube, CheckCircle2, ShieldCheck, Send, Printer, FlaskRound, Loader2 } from 'lucide-react'
+import { FlaskConical, TestTube, CheckCircle2, ShieldCheck, Send, Printer, FlaskRound, Loader2, Upload, Eye, Download, Paperclip } from 'lucide-react'
 import { useAuth } from '../../store/auth'
 import { PageHeader, Card, Table, Badge, EmptyState, Modal, Field } from '../../components/ui'
 import { toast } from '../../store/toast'
@@ -20,6 +20,16 @@ export function Lab() {
   const { doctorName } = useRefData()
   const [tab, setTab] = useState<'work' | 'orders'>('work')
   const [resultFor, setResultFor] = useState<LabSample | null>(null)
+  const [uploadFor, setUploadFor] = useState<LabOrder | null>(null)
+  const canUpload = can('lab.result') || can('lab.release')
+
+  async function openReport(orderId: string, download: boolean) {
+    try {
+      const r = await repo.getLabReportUrl(orderId, { download })
+      if (!r?.url) return toast.error('Report unavailable')
+      window.open(r.url, '_blank', 'noopener')
+    } catch (e) { toast.error('Could not open report', String((e as Error).message)) }
+  }
 
   const { data: samples, reload: reloadS } = useQuery(() => repo.listLabSamples(), [])
   const { data: orders, reload: reloadO } = useQuery(() => repo.listLabOrders(), [])
@@ -93,12 +103,22 @@ export function Lab() {
                         <span className="ml-2 text-sm text-ink">{patientName(o.patientId)?.name ?? o.patientId}</span>
                         <span className="ml-2 text-xs text-ink-faint">{doctorName(o.doctorId)} · {fmtDate(o.createdAt)}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge tone={released ? 'green' : allVerified ? 'teal' : 'amber'}>{o.status}</Badge>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={released ? 'green' : allVerified ? 'teal' : 'amber'}>{o.status === 'reported' ? 'Report Ready' : o.status}</Badge>
                         {allVerified && !released && can('lab.release') && <button className="btn-teal !px-2.5 !py-1 text-xs" onClick={() => act(() => repo.releaseOrderReport(o.id), 'Report released · patient notified')}><Send size={13} /> Release</button>}
                         {released && <button className="btn-outline !px-2.5 !py-1 text-xs" onClick={() => printReport(o, os, testMap, patientName(o.patientId))}><Printer size={13} /> Print Report</button>}
+                        {o.hasReport ? (
+                          <>
+                            <button className="btn-outline !px-2.5 !py-1 text-xs" onClick={() => openReport(o.id, false)}><Eye size={13} /> View</button>
+                            <button className="btn-outline !px-2.5 !py-1 text-xs" onClick={() => openReport(o.id, true)}><Download size={13} /> Download</button>
+                            {canUpload && <button className="btn-ghost !px-2.5 !py-1 text-xs" onClick={() => setUploadFor(o)}><Upload size={13} /> Replace</button>}
+                          </>
+                        ) : (
+                          canUpload && <button className="btn-primary !px-2.5 !py-1 text-xs" onClick={() => setUploadFor(o)}><Upload size={13} /> Upload Report</button>
+                        )}
                       </div>
                     </div>
+                    {o.hasReport && <div className="mb-2 flex items-center gap-1.5 text-xs text-ink-faint"><Paperclip size={12} /> {o.reportFileName}{o.reportUploadedAt ? ` · uploaded ${fmtDateTime(o.reportUploadedAt)}` : ''}</div>}
                     <Table head={<><th className="th">Test</th><th className="th">Result</th><th className="th">Unit</th><th className="th">Ref Range</th><th className="th">Status</th></>}>
                       {os.map((s) => (
                         <tr key={s.id}>
@@ -119,7 +139,54 @@ export function Lab() {
       )}
 
       {resultFor && <ResultModal sample={resultFor} test={testMap.get(resultFor.testId)} patient={patientName(resultFor.patientId)} onClose={() => setResultFor(null)} onSaved={reloadAll} />}
+      {uploadFor && <UploadReportModal order={uploadFor} tests={allSamples.filter((s) => s.orderId === uploadFor.id).map((s) => testMap.get(s.testId)?.name).filter(Boolean) as string[]} patient={patientName(uploadFor.patientId)} onClose={() => setUploadFor(null)} onSaved={reloadAll} />}
     </div>
+  )
+}
+
+function UploadReportModal({ order, tests, patient, onClose, onSaved }: { order: LabOrder; tests: string[]; patient?: Patient; onClose: () => void; onSaved: () => void }) {
+  const repo = getRepository()
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const ALLOWED = ['application/pdf', 'image/jpeg', 'image/png']
+
+  function pick(f: File | null) {
+    setErr('')
+    if (!f) { setFile(null); return }
+    if (!ALLOWED.includes(f.type)) { setErr('Only PDF, JPG, or PNG files are allowed.'); setFile(null); return }
+    if (f.size > 10 * 1024 * 1024) { setErr('File too large (maximum 10 MB).'); setFile(null); return }
+    setFile(f)
+  }
+  async function submit() {
+    if (!file) { setErr('Choose a file to upload.'); return }
+    setBusy(true); setErr('')
+    try {
+      await repo.uploadLabReport({ orderId: order.id, patientId: order.patientId, file })
+      toast.success('Report uploaded', 'Status set to Report Ready · patient notified')
+      onSaved(); onClose()
+    } catch (e) { setErr(String((e as Error).message)) } finally { setBusy(false) }
+  }
+  return (
+    <Modal open onClose={busy ? () => {} : onClose} closeOnBackdrop={!busy} title={order.hasReport ? 'Replace Lab Report' : 'Upload Lab Report'} subtitle={order.code}
+      footer={<><button className="btn-outline" onClick={onClose} disabled={busy}>Cancel</button><button className="btn-primary" onClick={submit} disabled={busy || !file}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {busy ? 'Uploading…' : (order.hasReport ? 'Replace Report' : 'Upload Report')}</button></>}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 rounded-lg bg-surface-muted p-3 text-sm">
+          <div className="flex justify-between gap-2"><span className="text-ink-faint">Patient</span><b className="text-right">{patient?.name ?? order.patientId}</b></div>
+          <div className="flex justify-between gap-2"><span className="text-ink-faint">Patient ID</span><b>{patient?.code ?? '—'}</b></div>
+          <div className="flex justify-between gap-2"><span className="text-ink-faint">Order</span><b>{order.code}</b></div>
+          <div className="flex justify-between gap-2"><span className="text-ink-faint">Order date</span><b>{fmtDate(order.createdAt)}</b></div>
+          <div className="col-span-2 flex justify-between gap-2"><span className="text-ink-faint">Test(s)</span><b className="text-right">{tests.length ? tests.join(', ') : '—'}</b></div>
+          <div className="col-span-2 flex items-center justify-between gap-2"><span className="text-ink-faint">Status</span><Badge tone={order.status === 'reported' ? 'green' : 'amber'}>{order.status === 'reported' ? 'Report Ready' : order.status}</Badge></div>
+        </div>
+        <Field label="Report file" required hint="PDF, JPG or PNG · maximum 10 MB">
+          <input type="file" accept="application/pdf,image/jpeg,image/png" className="input" onChange={(e) => pick(e.target.files?.[0] ?? null)} disabled={busy} />
+        </Field>
+        {file && <div className="flex items-center gap-2 rounded-lg border border-surface-line p-2 text-sm"><Paperclip size={14} className="text-brand-600" /> {file.name} <span className="text-ink-faint">({(file.size / 1024).toFixed(0)} KB)</span></div>}
+        {err && <div className="rounded-lg bg-rose-50 p-2.5 text-sm font-medium text-rose-700">{err}</div>}
+        <p className="text-xs text-ink-faint">Stored privately in NxtHealth secure storage (never a public link). The patient views it on their portal via a short-lived signed URL.</p>
+      </div>
+    </Modal>
   )
 }
 
