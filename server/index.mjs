@@ -22,8 +22,40 @@ const MIME = {
   '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.map': 'application/json',
 }
 
+// --- Content-Security-Policy, derived from the resources NxtHealth actually uses ---
+// connect-src is built from the (public) Supabase URL so nothing is hard-coded per env.
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || ''
+let supaHttp = '', supaWs = ''
+try { const u = new URL(SUPABASE_URL); supaHttp = u.origin; supaWs = `wss://${u.host}` } catch { /* no supabase origin configured */ }
+const CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",                                   // no plugins/embeds
+  "frame-ancestors 'none'",                              // clickjacking (with X-Frame-Options)
+  "form-action 'self'",
+  "img-src 'self' data: blob:",                          // favicon, CSS/data avatars
+  "font-src 'self' https://fonts.gstatic.com data:",     // Google Fonts (Inter) files
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // Google Fonts CSS + React inline styles + print styles
+  "script-src 'self'",                                   // only the bundled app; no inline/eval
+  ["connect-src 'self'", supaHttp, supaWs].filter(Boolean).join(' '), // Supabase Auth/REST/Storage/Edge + realtime
+].join('; ')
+
+// Applied to every response, before writeHead. HSTS only over HTTPS (Render sets x-forwarded-proto).
+function applySecurityHeaders(req, res) {
+  res.setHeader('Content-Security-Policy', CSP)
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()')
+  const proto = req.headers['x-forwarded-proto']
+  if (proto === 'https' || req.socket?.encrypted) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   try {
+    applySecurityHeaders(req, res)
     const path = decodeURIComponent((req.url || '/').split('?')[0])
 
     // --- lightweight, unauthenticated health probe (no DB, no provider, no secrets) ---

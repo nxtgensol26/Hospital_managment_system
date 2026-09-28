@@ -77,10 +77,10 @@ function buildHtml(title: string, inner: string, layout: PrintLayout): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${title} — ${APP.product}</title><style>${css}</style></head>
   <body class="${bodyClass}">
   <div class="toolbar noprint">
-    <button onclick="setL('a4')">Print A4</button>
-    <button class="alt" onclick="setL('t80')">Thermal 80mm</button>
-    <button class="alt" onclick="setL('t58')">Thermal 58mm</button>
-    <button class="alt" onclick="window.print()">Save as PDF</button>
+    <button data-nxt-layout="a4">Print A4</button>
+    <button class="alt" data-nxt-layout="t80">Thermal 80mm</button>
+    <button class="alt" data-nxt-layout="t58">Thermal 58mm</button>
+    <button class="alt" data-nxt-print="1">Save as PDF</button>
   </div>
   <div class="doc">
     <div class="head">
@@ -90,14 +90,24 @@ function buildHtml(title: string, inner: string, layout: PrintLayout): string {
     ${inner}
     <div class="foot"><span>${APP.product} by ${APP.company}</span><span>Support: ${APP.support.phone} · ${APP.support.email}</span></div>
   </div>
-  <script>function setL(l){document.body.className=l;window.print();}</script>
   </body></html>`
+}
+
+// Wire the toolbar without inline scripts/handlers, so the print document works
+// under a strict Content-Security-Policy (script-src 'self'). The controls are
+// attached programmatically from this (same-origin) app code.
+function wireControls(win: Window) {
+  try {
+    const d = win.document
+    d.querySelectorAll<HTMLElement>('[data-nxt-layout]').forEach((b) => b.addEventListener('click', () => { d.body.className = b.getAttribute('data-nxt-layout') || 'a4'; win.print() }))
+    d.querySelectorAll<HTMLElement>('[data-nxt-print]').forEach((b) => b.addEventListener('click', () => win.print()))
+  } catch { /* ignore */ }
 }
 
 export function printDoc(title: string, inner: string, opts?: { layout?: PrintLayout }) {
   const html = buildHtml(title, inner, opts?.layout ?? 'a4')
   const w = window.open('', '_blank', 'width=860,height=920')
-  if (w) { w.document.open(); w.document.write(html); w.document.close(); w.focus(); return }
+  if (w) { w.document.open(); w.document.write(html); w.document.close(); wireControls(w); w.focus(); return }
   // Popup blocked → print via a hidden iframe.
   const iframe = document.createElement('iframe')
   iframe.style.position = 'fixed'; iframe.style.right = '0'; iframe.style.bottom = '0'

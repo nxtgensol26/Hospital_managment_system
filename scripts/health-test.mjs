@@ -52,8 +52,9 @@ async function run() {
 
   const src = await readFile(SERVER, 'utf8')
   // Static safety: the server must contain no DB/provider egress code (6 + 7).
-  const egress = ['supabase', 'smshorizon', 'SERVICE_ROLE', 'fetch('].filter((f) => src.includes(f))
-  if (!egress.length) pass('6+7. no DB/provider egress in server (no supabase/provider/fetch)')
+  // Real egress = importing a client or making network calls (not a config/CSP string).
+  const egress = ['@supabase', 'createClient(', 'smshorizon', 'SERVICE_ROLE', 'fetch(', '.rpc('].filter((f) => src.includes(f))
+  if (!egress.length) pass('6+7. no DB/provider egress in server (no client import / fetch / rpc)')
   else fail('6+7. server contains egress code', egress.join(', '))
   // Structural: graceful shutdown handlers registered.
   const hasShutdown = src.includes("process.on('SIGTERM'") && src.includes("process.on('SIGINT'") && src.includes('server.close')
